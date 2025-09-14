@@ -31,7 +31,7 @@ npm run dev
 
 ## Flow
 
-- Homepage shows a QR and a user address input (hex). Input is sanitized (pads/truncates to 20 bytes).
+- Homepage shows a QR and a Connect Wallet button (no manual address input). The connected address is used as `userId`.
 - On success, the app navigates to `/status?user=<address>` which polls recent sends (Celo) and receipts (Base).
 - “Copy/Open” buttons are shown only on mobile/in-app browsers.
 
