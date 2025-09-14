@@ -21,6 +21,7 @@
     "next": "^14.2.28",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "styled-jsx": "5.1.1",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
@@ -28,12 +29,30 @@
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "autoprefixer": "^10.4.21",
+    "autoprefixer": "10.4.21",
     "eslint": "^8",
     "eslint-config-next": "14.2.8",
-    "postcss": "^8",
-    "tailwindcss": "^3.4.1",
+    "postcss": "8.4.47",
+    "tailwindcss": "3.4.13",
     "typescript": "^5"
+  },
+  "overrides": {
+    "caniuse-lite": "1.0.30001664",
+    "browserslist": "4.24.8",
+    "postcss": "8.4.47",
+    "autoprefixer": "10.4.21"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
   },
   "engines": {
     "node": "20.x"

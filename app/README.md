@@ -1,77 +1,47 @@
-# Self Workshop
+# Self Workshop (Frontend)
 
-This project demonstrates integration with the [Self Protocol](https://self.xyz/) for identity verification in a Next.js application. Users can verify their identity using the Self mobile app by scanning a QR code.
-
-## Features
-
-- QR code generation for Self Protocol integration
-- Identity verification flow
-- Customizable identity verification parameters
+Next.js UI for verifying with the Self mobile app and tracking LayerZero delivery.
 
 ## Prerequisites
 
-- Node.js 20.x or higher
-- NPM or Yarn
-- Self Protocol App [iOS](https://apps.apple.com/us/app/self-zk/id6478563710) or [Android](https://play.google.com/store/apps/details?id=com.proofofpassportapp&pli=1) installed on your mobile device
-- A public endpoint for the verification callback (can use [ngrok](https://ngrok.com/) for local development)
+- Node.js 20.x
+- npm
+- Self App: [iOS](https://apps.apple.com/us/app/self-zk/id6478563710) or [Android](https://play.google.com/store/apps/details?id=com.proofofpassportapp)
 
-## Environment Setup
+## Environment
 
-1. Copy the `.env.example` file to `.env.local`:
-   ```bash
-   cp .env.example .env.local
-   ```
+Copy and edit env:
+```bash
+cp .env.example .env
+```
 
-2. Configure the environment variables:
-   - `NEXT_PUBLIC_SELF_ENDPOINT`: Set to your public endpoint (e.g., ngrok URL)
-   - `NEXT_PUBLIC_SELF_APP_NAME`: Your application name (default: "Self Workshop")
-   - `NEXT_PUBLIC_SELF_SCOPE`: Your application scope (default: "self-workshop")
-   - `NEXT_PUBLIC_CELO_RPC_URL`: The URL of the Celo network you want to use for verification (default: "https://forno.celo.org")
+Set variables:
+- `NEXT_PUBLIC_SOURCE_CONTRACT`: Celo Mainnet source contract address
+- `NEXT_PUBLIC_SELF_APP_NAME` and `NEXT_PUBLIC_SELF_SCOPE`: UI labels
+- `NEXT_PUBLIC_SOURCE_EXPLORER`, `NEXT_PUBLIC_DEST_EXPLORER`: Explorer base URLs
+- `SOURCE_RPC`, `DEST_RPC` (server-only): RPCs used by `/api/status`
 
-## Getting Started
+## Run
 
-1. Install dependencies:
-   ```bash
-   npm install
-   # or
-   yarn install
-   ```
+```bash
+npm install
+npm run dev
+# Visit http://localhost:3000
+```
 
-2. Set up a public endpoint using ngrok (if developing locally):
-   ```bash
-   npx ngrok http 3000
-   ```
-   Copy the public URL and set it as `NEXT_PUBLIC_SELF_ENDPOINT` in your `.env.local` file.
+## Flow
 
-3. Run the development server:
-   ```bash
-   npm run dev
-   # or
-   yarn dev
-   ```
+- Homepage shows a QR and a user address input (hex). Input is sanitized (pads/truncates to 20 bytes).
+- On success, the app navigates to `/status?user=<address>` which polls recent sends (Celo) and receipts (Base).
+- “Copy/Open” buttons are shown only on mobile/in-app browsers.
 
-4. Open [http://localhost:3000](http://localhost:3000) with your browser to see the application.
+## Customize
 
-## How It Works
+- `app/app/page.tsx`: UI for QR, address input, and building the Self app.
+- `app/app/status/page.tsx`: Status page polling logic.
+- `app/app/api/status/route.ts`: Server route that fetches recent events (never 500s; returns `warnings` instead).
 
-1. When users visit the homepage, a unique QR code is generated using the Self Protocol.
-2. Users scan this QR code with their Self app.
-3. The Self app prompts users to share their identity information.
-4. After successful verification, users are redirected to the `/verified` page.
+## Notes
 
-## Customization
-
-The application can be customized by modifying the following files:
-
-- `src/app/page.tsx`: Frontend Self Protocol integration
-  - Customize the identity requirements in the `disclosures` section
-  - Modify the success callback behavior
-
-- `src/app/api/verify/route.ts`: Backend verification handler
-  - Customize verification parameters
-  - Modify the response handling logic
-
-## Additional Resources
-
-- [Self Protocol Documentation](https://docs.self.xyz/)
-- [Next.js Documentation](https://nextjs.org/docs)
+- The server uses `SOURCE_RPC`/`DEST_RPC`. Do not prefix them with `NEXT_PUBLIC`.
+- Use Node 20.x.
