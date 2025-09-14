@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Test, console} from "forge-std/Test.sol";
-import {ProofOfHumanOApp} from "../src/ProofOfHumanOApp.sol";
-import {ProofOfHumanReceiver} from "../src/ProofOfHumanReceiver.sol";
-import {ISelfVerificationRoot} from "@selfxyz/contracts/contracts/interfaces/ISelfVerificationRoot.sol";
+import { Test, console } from "forge-std/Test.sol";
+import { ProofOfHumanOApp } from "../src/ProofOfHumanOApp.sol";
+import { ProofOfHumanReceiver } from "../src/ProofOfHumanReceiver.sol";
+import { ISelfVerificationRoot } from "@selfxyz/contracts/contracts/interfaces/ISelfVerificationRoot.sol";
 
 contract ProofOfHumanOAppForkTest is Test {
     // Celo Mainnet
@@ -30,8 +30,8 @@ contract ProofOfHumanOAppForkTest is Test {
     address user = address(0xBEE5);
 
     // Fork ids
-    uint celoFork;
-    uint baseFork;
+    uint256 celoFork;
+    uint256 baseFork;
 
     // Deployed contracts
     ProofOfHumanOApp source;
