@@ -97,9 +97,19 @@ contract ProofOfHumanOAppForkTest is Test {
             ofac: [false, false, false]
         });
 
+        // Create expected simplified verification data
+        ProofOfHumanOApp.CrossChainVerification memory expectedData = ProofOfHumanOApp.CrossChainVerification({
+            userAddress: user,
+            verificationConfigId: CONFIG_ID,
+            timestamp: block.timestamp,
+            gender: "M",
+            nationality: "US",
+            minimumAge: 18
+        });
+
         // Expect our OApp event (indexed topics only), from the OApp emitter
         vm.expectEmit(true, true, true, false, address(source));
-        emit ProofOfHumanOApp.VerificationSentCrossChain(BASE_EID, user, CONFIG_ID, output);
+        emit ProofOfHumanOApp.VerificationSentCrossChain(BASE_EID, user, CONFIG_ID, expectedData);
 
         // Simulate hub callback, triggers customVerificationHook which sends cross-chain
         vm.prank(CELO_HUB);

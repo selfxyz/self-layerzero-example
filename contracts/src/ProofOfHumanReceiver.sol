@@ -20,7 +20,9 @@ contract ProofOfHumanReceiver is OApp, OAppOptionsType3 {
         address userAddress;
         bytes32 verificationConfigId;
         uint256 timestamp;
-        ISelfVerificationRoot.GenericDiscloseOutputV2 verificationOutput;
+        string gender;
+        string nationality;
+        uint256 minimumAge;
     }
 
     // Storage for received verifications
@@ -66,9 +68,6 @@ contract ProofOfHumanReceiver is OApp, OAppOptionsType3 {
     {
         // Decode the cross-chain verification data
         CrossChainVerification memory verification = abi.decode(_message, (CrossChainVerification));
-
-        // Validate that message comes from Celo Mainnet
-        require(_origin.srcEid == CELO_MAINNET_EID, "Invalid source chain");
 
         // Store the verification data
         verifiedHumans[verification.userAddress] = true;
@@ -118,17 +117,20 @@ contract ProofOfHumanReceiver is OApp, OAppOptionsType3 {
     }
 
     /**
-     * @notice Get the disclosed output for a verified user
+     * @notice Get the essential verification data for a verified user
      * @param userAddress The user address
-     * @return output The Self Protocol verification output
+     * @return gender User's gender
+     * @return nationality User's nationality
+     * @return minimumAge User's minimum age
      */
-    function getUserDiscloseOutput(address userAddress)
+    function getUserEssentialData(address userAddress)
         external
         view
-        returns (ISelfVerificationRoot.GenericDiscloseOutputV2 memory output)
+        returns (string memory gender, string memory nationality, uint256 minimumAge)
     {
         require(verifiedHumans[userAddress], "User not verified");
-        return verificationData[userAddress].verificationOutput;
+        CrossChainVerification memory data = verificationData[userAddress];
+        return (data.gender, data.nationality, data.minimumAge);
     }
 
     /**

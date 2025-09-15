@@ -19,7 +19,7 @@ contract ProofOfHumanOApp is SelfVerificationRoot, OApp, OAppOptionsType3 {
 
     mapping(uint256 => bool) public usedNullifier;
     mapping(address => bool) public verifiedHumans;
-    mapping(address => ISelfVerificationRoot.GenericDiscloseOutputV2) public verificationData;
+    mapping(address => CrossChainVerification) public verificationData;
     bytes32 public verificationConfigId;
 
     // Destination chain eid (Base Mainnet)
@@ -33,14 +33,16 @@ contract ProofOfHumanOApp is SelfVerificationRoot, OApp, OAppOptionsType3 {
         address userAddress;
         bytes32 verificationConfigId;
         uint256 timestamp;
-        ISelfVerificationRoot.GenericDiscloseOutputV2 verificationOutput;
+        string gender;
+        string nationality;
+        uint256 minimumAge;
     }
 
     event VerificationSentCrossChain(
         uint32 indexed dstEid,
         address indexed userAddress,
         bytes32 indexed verificationConfigId,
-        ISelfVerificationRoot.GenericDiscloseOutputV2 output
+        CrossChainVerification data
     );
 
     /**
@@ -82,37 +84,36 @@ contract ProofOfHumanOApp is SelfVerificationRoot, OApp, OAppOptionsType3 {
 
         address userAddress = address(uint160(_output.userIdentifier));
 
-        // Store verification data locally
+        // Store simplified verification data locally
         usedNullifier[_output.nullifier] = true;
         verifiedHumans[userAddress] = true;
-        verificationData[userAddress] = _output;
+
+        // Extract only essential data
+        CrossChainVerification memory crossChainData = CrossChainVerification({
+            userAddress: userAddress,
+            verificationConfigId: verificationConfigId,
+            timestamp: block.timestamp,
+            gender: _output.gender,
+            nationality: _output.nationality,
+            minimumAge: _output.olderThan
+        });
+
+        verificationData[userAddress] = crossChainData;
 
         // Automatically send verification to destination chain
-        _sendVerificationToBase(userAddress, _output);
+        _sendVerificationToBase(userAddress, crossChainData);
     }
 
     /**
      * @notice Send verification data to destination chain
      * @param _userAddress The user address
-     * @param _output The verification output to send
+     * @param _crossChainData The verification data to send
      */
-    function _sendVerificationToBase(
-        address _userAddress,
-        ISelfVerificationRoot.GenericDiscloseOutputV2 memory _output
-    )
-        internal
-    {
-        CrossChainVerification memory crossChainData = CrossChainVerification({
-            userAddress: _userAddress,
-            verificationConfigId: verificationConfigId,
-            timestamp: block.timestamp,
-            verificationOutput: _output
-        });
-
-        bytes memory message = abi.encode(crossChainData);
-        // Use OptionsBuilder to set 200,000 gas on destination lzReceive
+    function _sendVerificationToBase(address _userAddress, CrossChainVerification memory _crossChainData) internal {
+        bytes memory message = abi.encode(_crossChainData);
+        // Use OptionsBuilder to set 500,000 gas on destination lzReceive
         bytes memory options = this.combineOptions(
-            DESTINATION_EID, SEND, OptionsBuilder.newOptions().addExecutorLzReceiveOption(200_000, 0)
+            DESTINATION_EID, SEND, OptionsBuilder.newOptions().addExecutorLzReceiveOption(500_000, 0)
         );
 
         // Get fee quote for destination
@@ -120,7 +121,7 @@ contract ProofOfHumanOApp is SelfVerificationRoot, OApp, OAppOptionsType3 {
 
         _lzSend(DESTINATION_EID, message, options, fee, payable(address(this)));
 
-        emit VerificationSentCrossChain(DESTINATION_EID, _userAddress, verificationConfigId, _output);
+        emit VerificationSentCrossChain(DESTINATION_EID, _userAddress, verificationConfigId, _crossChainData);
     }
 
     /**
@@ -130,18 +131,14 @@ contract ProofOfHumanOApp is SelfVerificationRoot, OApp, OAppOptionsType3 {
     function sendVerificationToBase(address userAddress) external payable {
         require(verifiedHumans[userAddress], "User not verified");
 
-        CrossChainVerification memory crossChainData = CrossChainVerification({
-            userAddress: userAddress,
-            verificationConfigId: verificationConfigId,
-            timestamp: block.timestamp,
-            verificationOutput: verificationData[userAddress]
-        });
+        // Get existing verification data
+        CrossChainVerification memory crossChainData = verificationData[userAddress];
 
         bytes memory message = abi.encode(crossChainData);
 
-        // Use OptionsBuilder to set 200,000 gas on destination lzReceive
+        // Use OptionsBuilder to set 500,000 gas on destination lzReceive
         bytes memory options = this.combineOptions(
-            DESTINATION_EID, SEND, OptionsBuilder.newOptions().addExecutorLzReceiveOption(200_000, 0)
+            DESTINATION_EID, SEND, OptionsBuilder.newOptions().addExecutorLzReceiveOption(500_000, 0)
         );
 
         MessagingFee memory fee = _quote(DESTINATION_EID, message, options, false);
@@ -149,9 +146,7 @@ contract ProofOfHumanOApp is SelfVerificationRoot, OApp, OAppOptionsType3 {
         // Contract will pay; allow optional msg.value (excess refunded by endpoint)
         _lzSend(DESTINATION_EID, message, options, fee, payable(msg.sender));
 
-        emit VerificationSentCrossChain(
-            DESTINATION_EID, userAddress, verificationConfigId, verificationData[userAddress]
-        );
+        emit VerificationSentCrossChain(DESTINATION_EID, userAddress, verificationConfigId, crossChainData);
     }
 
     /**
@@ -162,16 +157,12 @@ contract ProofOfHumanOApp is SelfVerificationRoot, OApp, OAppOptionsType3 {
     function quoteVerificationToBase(address userAddress) external view returns (MessagingFee memory fee) {
         require(verifiedHumans[userAddress], "User not verified");
 
-        CrossChainVerification memory crossChainData = CrossChainVerification({
-            userAddress: userAddress,
-            verificationConfigId: verificationConfigId,
-            timestamp: block.timestamp,
-            verificationOutput: verificationData[userAddress]
-        });
+        // Use existing verification data
+        CrossChainVerification memory crossChainData = verificationData[userAddress];
 
         bytes memory message = abi.encode(crossChainData);
-        // 200,000 gas on destination lzReceive
-        bytes memory opts = OptionsBuilder.newOptions().addExecutorLzReceiveOption(200_000, 0);
+        // 500,000 gas on destination lzReceive
+        bytes memory opts = OptionsBuilder.newOptions().addExecutorLzReceiveOption(500_000, 0);
         fee = _quote(DESTINATION_EID, message, opts, false);
     }
 
