@@ -3,7 +3,8 @@
 # Deploy Cross-Chain Proof of Human OApp Script
 # Deploys ProofOfHumanOApp on Celo and ProofOfHumanReceiver on Base Mainnet
 
-set -e  # Exit on error
+# Don't exit immediately on error for peer setup - we want to continue with frontend config
+# set -e  # Exit on error
 
 # Color codes for output
 RED='\033[0;31m'
@@ -17,6 +18,33 @@ print_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
 print_success() { echo -e "${GREEN}✅ $1${NC}"; }
 print_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
 print_error() { echo -e "${RED}❌ $1${NC}"; }
+
+# Retry function with exponential backoff
+retry_command() {
+    local cmd="$1"
+    local description="$2"
+    local max_attempts="${3:-3}"
+    local wait_time="${4:-5}"
+
+    for attempt in $(seq 1 $max_attempts); do
+        print_info "Attempt $attempt/$max_attempts: $description"
+
+        if eval "$cmd"; then
+            return 0
+        else
+            local exit_code=$?
+            if [ $attempt -eq $max_attempts ]; then
+                print_error "Failed after $max_attempts attempts: $description"
+                return $exit_code
+            else
+                print_warning "Attempt $attempt failed, retrying in ${wait_time}s..."
+                sleep $wait_time
+                # Exponential backoff
+                wait_time=$((wait_time * 2))
+            fi
+        fi
+    done
+}
 
 # Check if .env file exists
 if [ ! -f ".env" ]; then
@@ -269,64 +297,77 @@ FUND_AMOUNT=${FUND_AMOUNT:-"0.01"}
 
 if [ "$AUTO_SETUP_PEERS" = "true" ]; then
     echo
-    print_info "🔗 Setting up LayerZero peers..."
-    
-    # Set destination as peer on Celo Mainnet
+    print_info "🔗 Setting up LayerZero peers with retry logic..."
+
+    # Prepare variables for peer setup
     setup_network_config "$SOURCE_NETWORK"
-    print_info "Setting destination receiver as peer on Celo Mainnet..."
     DEST_BYTES32=$(cast --to-bytes32 $DEST_CONTRACT_ADDRESS)
-    
-    cast send $SOURCE_CONTRACT_ADDRESS "setPeer(uint32,bytes32)" \
-        ${DESTINATION_EID} \
-        $DEST_BYTES32 \
-        --rpc-url $RPC_URL \
-        --private-key $PRIVATE_KEY \
-        --confirmations 2
-    
-    # Small delay to prevent nonce issues
-    sleep 3
-    
-    if [ $? -eq 0 ]; then
-        print_success "✅ Peer set on Celo Mainnet: ${DESTINATION_EID} -> $DEST_CONTRACT_ADDRESS"
-    else
-        print_error "Failed to set peer on Celo Mainnet"
-    fi
-    
-    # Set Celo Mainnet as peer on destination (EID: SOURCE_EID)
-    setup_network_config "$DESTINATION_NETWORK"
-    print_info "Setting Celo Mainnet source as peer on destination..."
     SOURCE_EID_DEFAULT=30125
     SOURCE_EID_EFFECTIVE=${SOURCE_EID:-$SOURCE_EID_DEFAULT}
     CELO_MAINNET_BYTES32=$(cast --to-bytes32 $SOURCE_CONTRACT_ADDRESS)
-    
-    cast send $DEST_CONTRACT_ADDRESS "setPeer(uint32,bytes32)" \
-        ${SOURCE_EID_EFFECTIVE} \
-        $CELO_MAINNET_BYTES32 \
-        --rpc-url $RPC_URL \
-        --private-key $PRIVATE_KEY \
-        --confirmations 2
-    
-    # Small delay after transaction
-    sleep 3
-    
-    if [ $? -eq 0 ]; then
-        print_success "✅ Peer set on destination: ${SOURCE_EID_EFFECTIVE} -> $SOURCE_CONTRACT_ADDRESS"
-    else
-        print_error "Failed to set peer on destination"
-    fi
-    
-    # Verify peer configuration
-    print_info "Verifying peer configuration..."
+
+    # Set destination as peer on Celo Mainnet with retry
     setup_network_config "$SOURCE_NETWORK"
-    SOURCE_PEER=$(cast call $SOURCE_CONTRACT_ADDRESS "peers(uint32)" ${DESTINATION_EID} --rpc-url $RPC_URL)
-    
-    setup_network_config "$DESTINATION_NETWORK"
-    DEST_PEER=$(cast call $DEST_CONTRACT_ADDRESS "peers(uint32)" ${SOURCE_EID_EFFECTIVE} --rpc-url $RPC_URL)
-    
-    if [[ "$SOURCE_PEER" == "$DEST_BYTES32" && "$DEST_PEER" == "$CELO_MAINNET_BYTES32" ]]; then
-        print_success "✅ LayerZero peers verified successfully!"
+    print_info "Step 1/2: Setting Base as peer on Celo contract..."
+
+    CELO_PEER_CMD="cast send $SOURCE_CONTRACT_ADDRESS 'setPeer(uint32,bytes32)' ${DESTINATION_EID} $DEST_BYTES32 --rpc-url $RPC_URL --private-key \$PRIVATE_KEY --confirmations 1"
+
+    if retry_command "$CELO_PEER_CMD" "Set peer on Celo" 3 8; then
+        print_success "✅ Peer set on Celo Mainnet: ${DESTINATION_EID} -> $DEST_CONTRACT_ADDRESS"
+        CELO_PEER_SUCCESS=true
     else
-        print_warning "⚠️ Peer verification failed. Please check manually."
+        print_error "❌ Failed to set peer on Celo Mainnet after retries"
+        CELO_PEER_SUCCESS=false
+    fi
+
+    # Set Celo Mainnet as peer on destination with retry
+    setup_network_config "$DESTINATION_NETWORK"
+    print_info "Step 2/2: Setting Celo as peer on Base contract..."
+
+    BASE_PEER_CMD="cast send $DEST_CONTRACT_ADDRESS 'setPeer(uint32,bytes32)' ${SOURCE_EID_EFFECTIVE} $CELO_MAINNET_BYTES32 --rpc-url $RPC_URL --private-key \$PRIVATE_KEY --confirmations 1"
+
+    if retry_command "$BASE_PEER_CMD" "Set peer on Base" 3 8; then
+        print_success "✅ Peer set on Base: ${SOURCE_EID_EFFECTIVE} -> $SOURCE_CONTRACT_ADDRESS"
+        BASE_PEER_SUCCESS=true
+    else
+        print_error "❌ Failed to set peer on Base after retries"
+        BASE_PEER_SUCCESS=false
+    fi
+
+    # Verify peer configuration with retry
+    if [ "$CELO_PEER_SUCCESS" = "true" ] && [ "$BASE_PEER_SUCCESS" = "true" ]; then
+        print_info "Verifying peer configuration..."
+        sleep 5  # Allow time for blockchain confirmation
+
+        setup_network_config "$SOURCE_NETWORK"
+        SOURCE_PEER=$(cast call $SOURCE_CONTRACT_ADDRESS "peers(uint32)" ${DESTINATION_EID} --rpc-url $RPC_URL 2>/dev/null || echo "")
+
+        setup_network_config "$DESTINATION_NETWORK"
+        DEST_PEER=$(cast call $DEST_CONTRACT_ADDRESS "peers(uint32)" ${SOURCE_EID_EFFECTIVE} --rpc-url $RPC_URL 2>/dev/null || echo "")
+
+        if [[ "$SOURCE_PEER" == "$DEST_BYTES32" && "$DEST_PEER" == "$CELO_MAINNET_BYTES32" ]]; then
+            print_success "✅ LayerZero peers verified successfully!"
+        else
+            print_warning "⚠️ Peer verification incomplete. Manual verification recommended:"
+            echo "  Expected Celo -> Base: $DEST_BYTES32"
+            echo "  Actual Celo -> Base:   $SOURCE_PEER"
+            echo "  Expected Base -> Celo: $CELO_MAINNET_BYTES32"
+            echo "  Actual Base -> Celo:   $DEST_PEER"
+        fi
+    else
+        print_error "❌ Peer setup failed. Manual intervention required."
+        echo
+        print_warning "🔧 Manual peer setup commands:"
+        echo "# Set Base as peer on Celo:"
+        echo "cast send $SOURCE_CONTRACT_ADDRESS 'setPeer(uint32,bytes32)' $DESTINATION_EID $DEST_BYTES32 --rpc-url https://forno.celo.org --private-key \$PRIVATE_KEY"
+        echo
+        echo "# Set Celo as peer on Base:"
+        echo "cast send $DEST_CONTRACT_ADDRESS 'setPeer(uint32,bytes32)' $SOURCE_EID_EFFECTIVE $CELO_MAINNET_BYTES32 --rpc-url https://mainnet.base.org --private-key \$PRIVATE_KEY"
+        echo
+
+        # Set exit code to indicate peer setup failure but continue
+        PEER_SETUP_FAILED=true
+        print_warning "Continuing with frontend configuration..."
     fi
 fi
 
@@ -428,13 +469,29 @@ if [ "$VERIFY_CONTRACTS" = "true" ]; then
     print_success "✅ Contract verification links provided above"
 fi
 
+# Final status and exit handling
 echo
-print_success "🎉 Deployment and setup completed!"
-print_warning "⚠️  Optional Next Steps:"
-if [ "$AUTO_FUND_SOURCE" != "true" ]; then
-    echo "1. Fund source contract: cast send $SOURCE_CONTRACT_ADDRESS_CHECKSUM --value 0.01ether --rpc-url https://forno.celo.org --private-key \$PRIVATE_KEY"
+if [ "$PEER_SETUP_FAILED" = "true" ]; then
+    print_warning "⚠️  Deployment completed with peer setup issues!"
+    echo "✅ Contracts deployed successfully"
+    echo "❌ Peer setup encountered errors - automatic retry will be attempted"
+    echo
+    print_warning "⚠️  Next Steps:"
+    echo "1. The Makefile will attempt automatic recovery"
+    echo "2. If recovery fails, run: make retry-peers"
+    echo "3. Or see: DEPLOYMENT_TROUBLESHOOTING.md"
+    echo
+    # Exit with code 2 to indicate peer setup failure (allows Makefile retry)
+    exit 2
+else
+    print_success "🎉 Deployment and setup completed successfully!"
+    print_warning "⚠️  Optional Next Steps:"
+    if [ "$AUTO_FUND_SOURCE" != "true" ]; then
+        echo "1. Fund source contract: cast send $SOURCE_CONTRACT_ADDRESS_CHECKSUM --value 0.01ether --rpc-url https://forno.celo.org --private-key \$PRIVATE_KEY"
+    fi
+    echo "2. Test verification through Self mobile app"
+    echo "3. Monitor cross-chain message delivery"
+    echo
+    echo "📚 For detailed documentation, see docs/layerzero-integration.md"
+    exit 0
 fi
-echo "2. Test verification through Self mobile app"
-echo "3. Monitor cross-chain message delivery"
-echo
-echo "📚 For detailed documentation, see docs/layerzero-integration.md"

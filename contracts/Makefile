@@ -8,9 +8,10 @@ help:
 	@echo "Self Protocol LayerZero Cross-Chain Deployment"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  deploy          - Full deployment with automatic peer setup"
+	@echo "  deploy          - Full deployment with automatic retry and recovery (recommended)"
 	@echo "  deploy-contracts - Deploy contracts only (no peer setup)"
 	@echo "  setup-peers     - Configure LayerZero peers (requires deployed contracts)"
+	@echo "  retry-peers     - Manually retry peer setup with enhanced error handling"
 	@echo "  fund-source     - Fund source contract for cross-chain gas (Usage: make fund-source AMOUNT=<CELO>, e.g., 0.5)"
 	@echo "  verify-setup    - Verify deployment and peer configuration"
 	@echo "  verify-contracts - Manually verify contracts on block explorers"
@@ -19,6 +20,13 @@ help:
 	@echo "  show-scope      - Read current scope from source contract"
 	@echo "  install         - Install dependencies"
 	@echo "  clean           - Clean build artifacts"
+	@echo ""
+	@echo "Features:"
+	@echo "  🔄 Auto-retry: 'make deploy' now includes automatic error recovery"
+	@echo "  🎯 Smart recovery: Detects deployment stage and applies appropriate fixes"
+	@echo ""
+	@echo "Troubleshooting:"
+	@echo "  retry-peers     - If automatic recovery fails, use this to retry manually"
 	@echo ""
 	@echo "Environment:"
 	@echo "  Ensure .env is configured with PRIVATE_KEY, VERIFICATION_CONFIG_ID, and SCOPE_SEED"
@@ -29,11 +37,11 @@ install:
 	npm install
 	forge install
 
-# Full deployment with automatic setup
+# Full deployment with automatic setup and retry logic
 deploy:
-	@echo "🚀 Starting full LayerZero cross-chain deployment..."
+	@echo "🚀 Starting full LayerZero cross-chain deployment with auto-retry..."
 	@if [ ! -f .env ]; then echo "❌ .env file not found. Copy .env.example to .env first."; exit 1; fi
-	AUTO_SETUP_PEERS=true ./script/deploy-oapp-cross-chain.sh
+	@AUTO_SETUP_PEERS=true ./script/deploy-oapp-cross-chain.sh || $(MAKE) _handle-deploy-failure
 
 # Deploy contracts only (no peer setup)
 deploy-contracts:
@@ -46,6 +54,12 @@ setup-peers:
 	@echo "🔗 Setting up LayerZero peers..."
 	@$(MAKE) _check-deployments
 	@$(MAKE) _setup-peers-internal
+
+# Retry peer setup with enhanced error handling
+retry-peers:
+	@echo "🔄 Retrying LayerZero peer setup with enhanced error handling..."
+	@$(MAKE) _check-deployments
+	@$(MAKE) _retry-peers-internal
 
 # Fund source contract
 fund-source:
@@ -99,6 +113,87 @@ _setup-peers-internal:
 	echo "Setting Celo Mainnet as peer on destination..." && \
 	cast send $$DEST_ADDR "setPeer(uint32,bytes32)" $$SOURCE_EID $$(cast --to-bytes32 $$SOURCE_ADDR) --rpc-url https://mainnet.base.org --private-key $$PRIVATE_KEY && \
 	echo "✅ Peers configured successfully!"
+
+_retry-peers-internal:
+	@source .env && \
+	SOURCE_ADDR=$$(jq -r '.transactions[] | select(.contractName == "ProofOfHumanOApp") | .contractAddress' broadcast/DeployProofOfHumanOApp.s.sol/42220/run-latest.json | head -1) && \
+	DEST_ADDR=$$(jq -r '.transactions[] | select(.contractName == "ProofOfHumanReceiver") | .contractAddress' broadcast/DeployProofOfHumanReceiver.s.sol/8453/run-latest.json | head -1) && \
+	echo "🔄 Retrying peer setup with enhanced handling..." && \
+	echo "Contracts: $$SOURCE_ADDR (Celo) <-> $$DEST_ADDR (Base)" && \
+	SOURCE_EID=$${SOURCE_EID:-30125} && \
+	DESTINATION_EID=$${DESTINATION_EID:-30184} && \
+	echo "Step 1/2: Setting Base as peer on Celo (with retry)..." && \
+	(cast send $$SOURCE_ADDR "setPeer(uint32,bytes32)" $$DESTINATION_EID $$(cast --to-bytes32 $$DEST_ADDR) --rpc-url https://forno.celo.org --private-key $$PRIVATE_KEY || \
+	 (echo "⚠️ First attempt failed, retrying in 10s..." && sleep 10 && \
+	  cast send $$SOURCE_ADDR "setPeer(uint32,bytes32)" $$DESTINATION_EID $$(cast --to-bytes32 $$DEST_ADDR) --rpc-url https://forno.celo.org --private-key $$PRIVATE_KEY)) && \
+	echo "✅ Celo peer set successfully" && \
+	sleep 8 && \
+	echo "Step 2/2: Setting Celo as peer on Base (with retry)..." && \
+	(cast send $$DEST_ADDR "setPeer(uint32,bytes32)" $$SOURCE_EID $$(cast --to-bytes32 $$SOURCE_ADDR) --rpc-url https://mainnet.base.org --private-key $$PRIVATE_KEY || \
+	 (echo "⚠️ First attempt failed, retrying in 10s..." && sleep 10 && \
+	  cast send $$DEST_ADDR "setPeer(uint32,bytes32)" $$SOURCE_EID $$(cast --to-bytes32 $$SOURCE_ADDR) --rpc-url https://mainnet.base.org --private-key $$PRIVATE_KEY)) && \
+	echo "✅ Base peer set successfully" && \
+	echo "🔍 Verifying peer configuration..." && \
+	sleep 5 && \
+	CELO_PEER=$$(cast call $$SOURCE_ADDR "peers(uint32)" $$DESTINATION_EID --rpc-url https://forno.celo.org) && \
+	BASE_PEER=$$(cast call $$DEST_ADDR "peers(uint32)" $$SOURCE_EID --rpc-url https://mainnet.base.org) && \
+	EXPECTED_BASE=$$(cast --to-bytes32 $$DEST_ADDR) && \
+	EXPECTED_CELO=$$(cast --to-bytes32 $$SOURCE_ADDR) && \
+	if [ "$$CELO_PEER" = "$$EXPECTED_BASE" ] && [ "$$BASE_PEER" = "$$EXPECTED_CELO" ]; then \
+		echo "✅ Peer configuration verified successfully!"; \
+	else \
+		echo "❌ Peer verification failed:"; \
+		echo "  Celo peer: $$CELO_PEER (expected: $$EXPECTED_BASE)"; \
+		echo "  Base peer: $$BASE_PEER (expected: $$EXPECTED_CELO)"; \
+		exit 1; \
+	fi
+
+# Intelligent failure handler for deploy command
+_handle-deploy-failure:
+	@echo
+	@echo "⚠️  Deployment encountered an issue. Attempting intelligent recovery..."
+	@if [ -f "broadcast/DeployProofOfHumanOApp.s.sol/42220/run-latest.json" ] && [ -f "broadcast/DeployProofOfHumanReceiver.s.sol/8453/run-latest.json" ]; then \
+		echo "✅ Contracts were deployed successfully. Attempting peer setup recovery..."; \
+		echo "🔄 Running enhanced peer retry logic..."; \
+		if $(MAKE) _retry-peers-internal; then \
+			echo "✅ Deployment completed successfully after recovery!"; \
+			echo "🎨 Updating frontend configuration..."; \
+			$(MAKE) _update-frontend-config; \
+		else \
+			echo "❌ Automatic recovery failed. Manual intervention required."; \
+			echo ""; \
+			echo "📋 Recovery steps:"; \
+			echo "1. Run: make retry-peers"; \
+			echo "2. Or see: DEPLOYMENT_TROUBLESHOOTING.md"; \
+			exit 1; \
+		fi; \
+	elif [ -f "broadcast/DeployProofOfHumanOApp.s.sol/42220/run-latest.json" ] || [ -f "broadcast/DeployProofOfHumanReceiver.s.sol/8453/run-latest.json" ]; then \
+		echo "⚠️  Partial deployment detected. Some contracts were deployed but others failed."; \
+		echo "🔧 Manual recovery required. Check deployment artifacts and re-run deploy."; \
+		exit 1; \
+	else \
+		echo "❌ Contract deployment failed completely. Check your configuration and try again."; \
+		echo "📋 Troubleshooting steps:"; \
+		echo "1. Verify .env configuration"; \
+		echo "2. Check deployer balance on both chains"; \
+		echo "3. Run: make deploy-contracts (to deploy without peer setup)"; \
+		exit 1; \
+	fi
+
+_update-frontend-config:
+	@echo "🎨 Updating frontend configuration..."
+	@source .env && \
+	SOURCE_ADDR=$$(jq -r '.transactions[] | select(.contractName == "ProofOfHumanOApp") | .contractAddress' broadcast/DeployProofOfHumanOApp.s.sol/42220/run-latest.json | head -1) && \
+	DEST_ADDR=$$(jq -r '.transactions[] | select(.contractName == "ProofOfHumanReceiver") | .contractAddress' broadcast/DeployProofOfHumanReceiver.s.sol/8453/run-latest.json | head -1) && \
+	FRONTEND_ENV_FILE="../app/.env" && \
+	if [ -f "$$FRONTEND_ENV_FILE" ]; then \
+		sed -i.bak "s|NEXT_PUBLIC_SOURCE_CONTRACT=.*|NEXT_PUBLIC_SOURCE_CONTRACT=$$SOURCE_ADDR|g" "$$FRONTEND_ENV_FILE" 2>/dev/null || { echo "NEXT_PUBLIC_SOURCE_CONTRACT=$$SOURCE_ADDR" >> "$$FRONTEND_ENV_FILE"; } && \
+		sed -i.bak "s|NEXT_PUBLIC_DEST_CONTRACT=.*|NEXT_PUBLIC_DEST_CONTRACT=$$DEST_ADDR|g" "$$FRONTEND_ENV_FILE" 2>/dev/null || { echo "NEXT_PUBLIC_DEST_CONTRACT=$$DEST_ADDR" >> "$$FRONTEND_ENV_FILE"; } && \
+		rm -f "$$FRONTEND_ENV_FILE.bak" 2>/dev/null && \
+		echo "✅ Frontend configuration updated"; \
+	else \
+		echo "⚠️  Frontend .env not found, skipping update"; \
+	fi
 
 _fund-source-internal:
 	@source .env && \
