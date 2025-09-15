@@ -1,257 +1,96 @@
-# Self Protocol Workshop
+# Self Protocol + LayerZero (Celo → Base)
 
-Learn to build privacy-preserving identity verification with [Self Protocol](https://self.xyz/) - from frontend QR codes to smart contract attestations on Celo.
-
-> 📺 **New to Self?** Watch the [ETHGlobal Workshop](https://www.youtube.com/live/0Jg1o9BFUBs?si=4g0okIn91QMIzew-) first.
-
-## Prerequisites
-
-- Node.js 20+
-- [Self Mobile App](https://self.xyz/download) (iOS/Android)
-- Celo wallet with testnet funds
-
----
-
-## Workshop Steps
-
-### Step 1: Repository Setup
-
-```bash
-# Clone the workshop repository
-git clone <repository-url>
-cd workshop
-
-# Install frontend dependencies
-cd app
-npm install
-cd ..
-
-# Install contract dependencies
-cd contracts
-npm install          # Install Self SDK packages
-forge install        # Install Foundry libraries
-cd ..
-```
-
-### Step 2: Generate Verification Config
-
-Visit [tools.self.xyz](https://tools.self.xyz) to create verification config:
-
-1. Set age requirement (e.g., 18+)
-2. Choose excluded countries
-3. Select OFAC compliance level  
-4. **Deploy config** (use testnet mode - free gas)
-5. **Save the Config ID** (bytes32 format like `0x1234...`)
-
-### Step 3: Smart Contract Deployment
-
-Navigate to the contracts folder and configure deployment:
-
-```bash
-cd contracts
-
-# Install dependencies (if not done in Step 1)
-npm install          # Install Self SDK packages
-forge install        # Install Foundry libraries
-
-# Copy and configure environment
-cp .env.example .env
-```
-
-Edit `.env` with your values:
-```bash
-# Your private key (with 0x prefix)
-PRIVATE_KEY=0xyour_private_key_here
-
-# From tools.self.xyz
-VERIFICATION_CONFIG_ID=0x1234...your_config_id
-
-# Network selection
-NETWORK=celo-alfajores
-
-# Scope calculation
-SCOPE_SEED="self-workshop"
-```
-
-Deploy the contract:
-```bash
-# Make script executable
-chmod +x script/deploy-proof-of-human.sh
-
-# Deploy contract (handles everything automatically)
-./script/deploy-proof-of-human.sh
-```
-
-The script will:
-- ✅ Build contracts with Foundry
-- ✅ Deploy ProofOfHuman contract  
-- ✅ Calculate and set scope using deployed address
-- ✅ Verify contract on CeloScan
-- ✅ Display deployment summary
-
-### Step 4: Frontend Configuration
-
-Configure the frontend:
-
-```bash
-cd ../app  # Go to app directory
-cp .env.example .env
-```
-
-Edit `.env`:
-```bash
-# Your deployed contract address from Step 3
-NEXT_PUBLIC_SELF_ENDPOINT=0xYourContractAddress
-
-# App configuration
-NEXT_PUBLIC_SELF_APP_NAME="Self Workshop"
-NEXT_PUBLIC_SELF_SCOPE="self-workshop"
-```
-
-### Step 5: Start Development
-
-```bash
-# Navigate to app directory and start the Next.js development server
-cd app
-npm run dev
-```
-
-Visit `http://localhost:3000` to see your verification application!
-
----
-
-## 🛠️ Detailed Configuration
-
-### Frontend SDK Configuration
-
-The Self SDK is configured in your React components:
-
-```javascript
-import { SelfAppBuilder } from '@selfxyz/core';
-
-const selfApp = new SelfAppBuilder({
-    // Contract integration settings
-    endpoint: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS,
-    endpointType: "staging_celo",  // Use "celo" for mainnet
-    userIdType: "hex",             // For wallet addresses
-    version: 2,                    // Always use V2
-    
-    // App details
-    appName: "Self Workshop",
-    scope: "self-workshop",
-    userId: userWalletAddress,
-
-    disclosures: {
-        // Verification requirements (must match your contract config)
-        minimumAge: 18,
-        excludedCountries: ["USA"],  // 3-letter country codes
-        ofac: false,                 // OFAC compliance checking
-        // disclosures
-        name: true,                  // Request name disclosure
-        nationality: true,           // Request nationality disclosure
-        gender: true,                // Request gender disclosure
-        date_of_birth: true,         // Request date of birth disclosure
-        passport_number: true,       // Request passport number disclosure
-        expiry_date: true,           // Request expiry date disclosure
-    }
-}).build();
-```
-
-### Smart Contract Configuration
-
-Your contract extends `SelfVerificationRoot`:
-
-```solidity
-contract ProofOfHuman is SelfVerificationRoot {
-    mapping(address => bool) public verifiedHumans;
-    bytes32 public verificationConfigId;
-    
-    constructor(
-        address _hubAddress,
-        uint256 _scope,
-        bytes32 _verificationConfigId
-    ) SelfVerificationRoot(_hubAddress, _scope) {
-        verificationConfigId = _verificationConfigId;
-    }
-    
-    function customVerificationHook(
-        ISelfVerificationRoot.GenericDiscloseOutputV2 memory output,
-        bytes memory userData
-    ) internal override {
-        // Mark user as verified
-        address userAddress = address(uint160(output.userIdentifier));
-        verifiedHumans[userAddress] = true;
-        
-        emit VerificationCompleted(output, userData);
-    }
-}
-```
-
-### Network Configuration
-
-#### Celo Alfajores (Testnet)
-- **Hub Address**: `0x68c931C9a534D37aa78094877F46fE46a49F1A51`
-- **RPC**: `https://alfajores-forno.celo-testnet.org`
-- **Explorer**: `https://alfajores.celoscan.io`
-- **Supports**: Mock passports for testing
-
-#### Celo Mainnet
-- **Hub Address**: `0xe57F4773bd9c9d8b6Cd70431117d353298B9f5BF`
-- **RPC**: `https://forno.celo.org`
-- **Explorer**: `https://celoscan.io`
-- **Supports**: Real passport verification
-
----
-
-### Getting Help
-
-- 📱 **Telegram Community**: [Self Protocol Support](https://t.me/selfprotocol)
-- 📖 **Documentation**: [docs.self.xyz](https://docs.self.xyz)
-- 🎥 **Workshop Video**: [ETHGlobal Cannes](https://www.youtube.com/live/0Jg1o9BFUBs)
-- 💬 **GitHub Issues**: Report workshop-specific issues
-
----
+Build a cross-chain verification flow with Self Protocol on Celo Mainnet and forward results to Base Mainnet via LayerZero.
 
 ## 📁 Project Structure
-
 ```
-workshop/
-├── app/
-│   ├── app/
-│   │   ├── verified/page.tsx        # Success page
-│   │   ├── page.tsx                 # Main QR code page
-│   │   └── layout.tsx               # Root layout
-│   └── components/                  # React components
-├── contracts/
-│   ├── src/ProofOfHuman.sol         # Main contract
-│   ├── script/
-│   │   ├── Deploy*.s.sol            # Deployment scripts
-│   │   └── deploy-proof-of-human.sh # Deployment automation
-│   ├── .env.example                 # Contract environment template
-│   ├── foundry.toml                 # Foundry configuration
-│   └── DEPLOYMENT.md                # Detailed deployment guide
-├── public/                          # Static assets
-├── .env.example                     # Frontend environment template
-└── README.md                        # This file
+self-layerzero-example/
+├── app/                      # Frontend (Next.js)
+│   └── app/
+│       ├── page.tsx          # QR + Connect Wallet (no manual address input)
+│       └── status/page.tsx   # Recent sends/receipts (polling)
+└── contracts/                # Contracts + scripts (Foundry)
+    ├── src/
+    │   ├── ProofOfHumanOApp.sol      # Celo sender (Self + LZ OApp, has withdraw())
+    │   └── ProofOfHumanReceiver.sol  # Base receiver
+    ├── script/
+    │   └── deploy-oapp-cross-chain.sh
+    ├── Makefile              # make deploy, set-scope, fund-source, withdraw-source...
+    └── .env(.example)
 ```
 
----
+## ✅ Prerequisites
+- Node.js 20
+- Foundry toolchain
+- Self App (iOS/Android)
+- Wallet funded on Celo (deploy + funding) and Base (deploy)
+- Note: Celo Alfajores is not supported by LZ v2
 
-## 🔗 Additional Resources
+## 🚀 Quick Start
 
-### Documentation
-- [Self Protocol Docs](https://docs.self.xyz/) - Complete protocol documentation
-- [Contract Integration Guide](https://docs.self.xyz/contract-integration/basic-integration) - Smart contract specifics
-- [Frontend SDK Reference](https://docs.self.xyz/sdk-reference/selfappbuilder) - Frontend integration details
-- [Verification Disclosures](https://docs.self.xyz/use-self/disclosures) - Available verification options
+```bash
+# 1) Install
+cd contracts && npm install && forge install
+cd ../app && npm install
 
-### Tools & Utilities
-- [tools.self.xyz](https://tools.self.xyz) - Configuration and deployment tools
-- [Self Mobile Apps](https://self.xyz/download) - iOS and Android apps
-- [Celo Documentation](https://docs.celo.org/) - Blockchain platform docs
-- [Foundry Documentation](https://book.getfoundry.sh/) - Smart contract framework
+# 2) Configure contracts/.env (edit PRIVATE_KEY, VERIFICATION_CONFIG_ID, SCOPE_SEED)
+cd ../contracts && cp .env.example .env
 
-### Community & Support
-- [Self Protocol Telegram](https://t.me/selfprotocol) - Community support
-- [GitHub Repository](https://github.com/selfxyz) - Source code and issues
-- [ETHGlobal Workshop](https://www.youtube.com/live/0Jg1o9BFUBs) - Video tutorial
+# 3) Deploy (deploys + verifies + sets scope/peers + writes app/.env)
+make deploy
+
+# 4) Fund source (required for auto-forward; recommend ≥ 0.5 CELO)
+make fund-source AMOUNT=0.5
+
+# 5) Run frontend
+cd ../app && npm run dev   # http://localhost:3000
+```
+
+On the homepage:
+- Connect Wallet → scan QR with Self App → auto navigate to `/status` for delivery logs
+
+## 🧠 How It Works
+- Verification is initiated from the Self mobile app and executed inside a TEE server (trusted execution environment) that submits the proof to your on‑chain endpoint on Celo.
+- Your endpoint is the OApp’s `verifySelfProof` (inherited from `SelfVerificationRoot`). It calls the Self Hub on Celo to validate the proof and your policy (e.g., minimum age, exclude country) and normalizes the result for retrieval.
+- After success, your overridden `onVerificationSuccess` hook runs and calls `_lzSend` with a minimal payload. LayerZero V2 delivers it to Base (EID 30184), where the receiver persists the verification.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User as Self App (mobile)
+    participant TEE as TEE server
+    participant OApp as Celo OApp.verifySelfProof
+    participant Hub as Self Hub (Celo)
+    participant LZ as LayerZero Endpoint V2
+    participant Base as Base Receiver Contract
+
+    User->>TEE: Scan QR / deeplink
+    TEE->>OApp: submit proof to verifySelfProof(userId, proof)
+    Note right of OApp: inherited from SelfVerificationRoot
+    OApp->>Hub: validate proof + policy checks
+    Note right of Hub: minimum age, exclude country, etc.
+    Hub-->>OApp: verification ok + attributes
+    OApp->>OApp: normalize result for storage
+    OApp->>OApp: onVerificationSuccess (override)
+    OApp->>LZ: _lzSend(dst=Base EID 30184, gas=200k)
+    LZ-->>Base: deliver message
+    Base->>Base: _lzReceive() persist verification
+```
+
+##
+
+## 💡 Best Practices
+- Keep cross-chain payload minimal (e.g., `userAddress`, `verificationConfigId`, small `timestamp/flag`)
+- Avoid large strings/arrays; fees grow with bytes + dst gas
+- Fund before testing; insufficient funds will skip sends silently
+
+## 🔗 Network
+- Celo Mainnet (EID 30125)
+  - RPC: https://forno.celo.org, Explorer: https://celoscan.io
+- Base Mainnet (EID 30184)
+  - RPC: https://mainnet.base.org, Explorer: https://basescan.org
+
+## 📚 References
+- Self Docs: https://docs.self.xyz
+- Self Tools: https://tools.self.xyz
+- LayerZero OApp: https://docs.layerzero.network

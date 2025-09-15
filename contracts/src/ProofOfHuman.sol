@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {SelfVerificationRoot} from "@selfxyz/contracts/contracts/abstract/SelfVerificationRoot.sol";
-import {ISelfVerificationRoot} from "@selfxyz/contracts/contracts/interfaces/ISelfVerificationRoot.sol";
-import {SelfStructs} from "@selfxyz/contracts/contracts/libraries/SelfStructs.sol";
+import { SelfVerificationRoot } from "@selfxyz/contracts/contracts/abstract/SelfVerificationRoot.sol";
+import { ISelfVerificationRoot } from "@selfxyz/contracts/contracts/interfaces/ISelfVerificationRoot.sol";
+import { SelfStructs } from "@selfxyz/contracts/contracts/libraries/SelfStructs.sol";
 
 /**
  * @title TestSelfVerificationRoot
@@ -20,10 +20,7 @@ contract ProofOfHuman is SelfVerificationRoot {
     address public lastUserAddress;
 
     // Events for testing
-    event VerificationCompleted(
-        ISelfVerificationRoot.GenericDiscloseOutputV2 output,
-        bytes userData
-    );
+    event VerificationCompleted(ISelfVerificationRoot.GenericDiscloseOutputV2 output, bytes userData);
 
     /**
      * @notice Constructor for the test contract
@@ -33,7 +30,9 @@ contract ProofOfHuman is SelfVerificationRoot {
         address identityVerificationHubV2Address,
         uint256 scope,
         bytes32 _verificationConfigId
-    ) SelfVerificationRoot(identityVerificationHubV2Address, scope) {
+    )
+        SelfVerificationRoot(identityVerificationHubV2Address, scope)
+    {
         verificationConfigId = _verificationConfigId;
     }
     /**
@@ -42,10 +41,14 @@ contract ProofOfHuman is SelfVerificationRoot {
      * @param output The verification output from the hub
      * @param userData The user data passed through verification
      */
+
     function customVerificationHook(
         ISelfVerificationRoot.GenericDiscloseOutputV2 memory output,
         bytes memory userData
-    ) internal override {
+    )
+        internal
+        override
+    {
         verificationSuccessful = true;
         lastOutput = output;
         lastUserData = userData;
@@ -67,11 +70,15 @@ contract ProofOfHuman is SelfVerificationRoot {
     }
 
     function getConfigId(
-        bytes32 /* destinationChainId */,
-        bytes32 /* userIdentifier */,
+        bytes32, /* destinationChainId */
+        bytes32, /* userIdentifier */
         bytes memory /* userDefinedData */
-    ) public view override returns (bytes32) {
+    )
+        public
+        view
+        override
+        returns (bytes32)
+    {
         return verificationConfigId;
     }
-
 }
